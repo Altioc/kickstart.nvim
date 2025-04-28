@@ -95,7 +95,7 @@ vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagn
 --
 -- NOTE: This won't work in all terminal emulators/tmux/etc. Try your own mapping
 -- or just use <C-\><C-n> to exit terminal mode
-vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
+vim.keymap.set('t', 'jj', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 
 -- TIP: Disable arrow keys in normal mode
 vim.keymap.set('n', '<left>', '<cmd>echo "Use h to move!!"<CR>')
@@ -123,6 +123,35 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   group = vim.api.nvim_create_augroup('kickstart-highlight-yank', { clear = true }),
   callback = function()
     vim.highlight.on_yank()
+  end,
+})
+
+local auto_hide_timer = nil
+vim.api.nvim_create_autocmd('CmdlineLeave', {
+  desc = 'Automatically clear the command line text after a couple seconds',
+  group = vim.api.nvim_create_augroup('auto-hide-commandline', { clear = true }),
+  callback = function()
+    if auto_hide_timer ~= nil then
+      auto_hide_timer:again()
+      return
+    end
+
+    auto_hide_timer = vim.uv.new_timer()
+
+    if auto_hide_timer == nil then
+      return
+    end
+
+    auto_hide_timer:start(
+      5000,
+      0,
+      vim.schedule_wrap(function()
+        auto_hide_timer:stop()
+        auto_hide_timer:close()
+        auto_hide_timer = nil
+        vim.print ' '
+      end)
+    )
   end,
 })
 
@@ -742,21 +771,7 @@ require('lazy').setup({
       -- - sr)'  - [S]urround [R]eplace [)] [']
       require('mini.surround').setup()
 
-      -- Simple and easy statusline.
-      --  You could remove this setup call if you don't like it,
-      --  and try some other statusline plugin
-      local statusline = require 'mini.statusline'
-      -- set use_icons to true if you have a Nerd Font
-      statusline.setup { use_icons = vim.g.have_nerd_font }
-
-      -- You can configure sections in the statusline by overriding their
-      -- default behavior. For example, here we set the section for
-      -- cursor location to LINE:COLUMN
-      ---@diagnostic disable-next-line: duplicate-set-field
-      statusline.section_location = function()
-        return '%2l:%-2v'
-      end
-
+      require('mini.notify').setup()
       -- ... and there is more!
       --  Check out: https://github.com/echasnovski/mini.nvim
     end,
