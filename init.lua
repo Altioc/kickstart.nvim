@@ -112,6 +112,174 @@ vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right win
 vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
 vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+local window_data = {}
+
+local ResizeStrategy = {
+  FLEX = 1,
+  STATIC = 2,
+}
+
+local function update_proportional_window_sizes()
+  local total_columns = vim.o.columns
+  local total_lines = vim.o.lines - vim.o.cmdheight
+
+  for window_id, data in pairs(window_data) do
+    local current_height = vim.api.nvim_win_get_height(window_id)
+    local current_width = vim.api.nvim_win_get_width(window_id)
+
+    if data.strategy ~= ResizeStrategy.FLEX then
+      return
+    end
+
+    window_data[window_id].height_proportion = current_height / total_lines
+    window_data[window_id].width_proportion = current_width / total_columns
+  end
+end
+
+local function save_window(window_id, resize_strategy)
+  local current_height = vim.api.nvim_win_get_height(window_id)
+  local current_width = vim.api.nvim_win_get_width(window_id)
+
+  window_data[window_id] = {
+    id = window_id,
+    width_proportion = nil,
+    height_proportion = nil,
+    width = nil,
+    height = nil,
+  }
+
+  if resize_strategy == ResizeStrategy.FLEX then
+    window_data[window_id].strategy = ResizeStrategy.FLEX
+    update_proportional_window_sizes()
+    return
+  end
+
+  if resize_strategy == ResizeStrategy.STATIC then
+    window_data[window_id].strategy = ResizeStrategy.STATIC
+    window_data[window_id].height = current_height
+    window_data[window_id].width = current_width
+    return
+  end
+end
+
+local function resize_windows()
+  for window_id, data in pairs(window_data) do
+    if data.width_proportion ~= nil then
+      local total_columns = vim.o.columns
+      vim.api.nvim_win_set_width(window_id, math.floor(total_columns * data.width_proportion + 0.5))
+    end
+
+    if data.width ~= nil then
+      vim.api.nvim_win_set_width(window_id, data.width)
+    end
+
+    if data.height_proportion ~= nil then
+      local total_lines = vim.o.lines - vim.o.cmdheight
+      vim.api.nvim_win_set_height(window_id, math.floor(total_lines * data.height_proportion + 0.5))
+    end
+
+    if data.height ~= nil then
+      vim.api.nvim_win_set_height(window_id, data.height)
+    end
+  end
+end
+
+local function update_current_window()
+  local current_window_id = vim.api.nvim_get_current_win()
+
+  local window_config = vim.api.nvim_win_get_config(current_window_id)
+
+  if window_config.relative ~= '' then
+    return
+  end
+
+  save_window(current_window_id, window_data[current_window_id].strategy)
+end
+
+vim.api.nvim_create_autocmd('VimEnter', {
+  callback = function()
+    local current_tabpage_id = 0
+    local windows = vim.api.nvim_tabpage_list_wins(current_tabpage_id)
+
+    for _, window_id in ipairs(windows) do
+      local window_config = vim.api.nvim_win_get_config(window_id)
+
+      if window_config.relative ~= '' then
+        return
+      end
+
+      save_window(window_id, ResizeStrategy.FLEX)
+    end
+  end,
+})
+
+vim.api.nvim_create_autocmd('WinNew', {
+  callback = function()
+    local new_window_id = vim.api.nvim_get_current_win()
+    local window_config = vim.api.nvim_win_get_config(new_window_id)
+
+    if window_config.relative ~= '' then
+      return
+    end
+
+    save_window(new_window_id, ResizeStrategy.FLEX)
+  end,
+})
+
+vim.api.nvim_create_autocmd('WinClosed', {
+  callback = function(args)
+    if window_data[tonumber(args.file)] == nil then
+      return
+    end
+
+    window_data[tonumber(args.file)] = nil
+
+    vim.defer_fn(function()
+      update_proportional_window_sizes()
+      resize_windows()
+    end, 10)
+  end,
+})
+
+vim.api.nvim_create_autocmd('VimResized', {
+  callback = function()
+    resize_windows()
+  end,
+})
+
+vim.api.nvim_create_user_command('PrintWindowData', function()
+  vim.print(window_data)
+end, {})
+
+vim.api.nvim_create_user_command('UpdateCurrentWindowSize', function()
+  update_current_window()
+end, {})
+
+vim.api.nvim_create_user_command('FlexWindowSize', function()
+  local current_window_id = vim.api.nvim_get_current_win()
+
+  local window_config = vim.api.nvim_win_get_config(current_window_id)
+
+  if window_config.relative ~= '' then
+    return
+  end
+
+  save_window(current_window_id, ResizeStrategy.FLEX_HEIGHT)
+  resize_windows()
+end, {})
+
+vim.api.nvim_create_user_command('StaticWindowSize', function()
+  local current_window_id = vim.api.nvim_get_current_win()
+
+  local window_config = vim.api.nvim_win_get_config(current_window_id)
+
+  if window_config.relative ~= '' then
+    return
+  end
+
+  save_window(current_window_id, ResizeStrategy.STATIC)
+end, {})
+
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
